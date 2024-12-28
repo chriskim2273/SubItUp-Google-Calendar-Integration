@@ -193,9 +193,20 @@ const getCalendarId = async (calendarName, accessToken) => {
     return calendarId;
 }
 
-const createShiftEvents = async (shiftIds, shiftData, accessToken) => {
+const createShiftEvents = async (shiftIds, shiftData, timeZoneDescription, accessToken) => {
     // ADD THIS AS A PARAMETER
     const calendarName = "SubItUp Shifts";
+
+    // Shift start and end times are only given in terms of the user's
+    // configured time zone on SubItUp, so time zone info needs to be included
+    // when sending the event data to the Calendar API. Otherwise there's no way
+    // for it to know whether a "9:00 am" shift is taking place at New York
+    // City's 9:00 am or San Francisco's 9:00 am.
+    //
+    // The Calendar API requires a time zone for event times, so a fallback is
+    // provided in case the SubItUp time zone can't be read or translated to an
+    // AINA time zone for whatever reason.
+    const ainaTimeZoneName = getAinaTimeZoneNameFromSubItUpTimeZoneDescription(timeZoneDescription) ?? "America/New_York";
 
     let shiftsToAddToCalendar = shiftData.filter((shift) => {
         let index = shiftIds.indexOf(shift['shiftid']);
@@ -210,11 +221,11 @@ const createShiftEvents = async (shiftIds, shiftData, accessToken) => {
             description: shift['HelpfulInfo'],
             start: {
                 dateTime: shift['milstart'].replace(' ', 'T'),
-                timeZone: 'America/New_York',
+                timeZone: ainaTimeZoneName,
             },
             end: {
                 dateTime: shift['milend'].replace(' ', 'T'),
-                timeZone: 'America/New_York',
+                timeZone: ainaTimeZoneName,
             }
         }
     });
@@ -272,7 +283,7 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
     }
     else if (message.action === 'uploadToGoogleCalendar') {
         console.log(message.shiftIds);
-        createShiftEvents(message.shiftIds, message.shiftData, message.token);
+        createShiftEvents(message.shiftIds, message.shiftData, message.timeZoneDescription, message.token);
     }
     else if (message.action === 'refreshShifts') {
         let payload = undefined;
@@ -490,3 +501,70 @@ const handleAuthClick = () => {
         chrome.runtime.sendMessage({ action: 'loggedOut' })
     }
 };
+
+// SubItUp doesn't provide the user's chosen time zone in the API, and the time
+// zone description that's shown in the sidebar of the SubItUp UI is in a
+// different format than the IANA time zone names that the Google Calendar API
+// expects. So, we need to translate the SubItUp time zone description to an
+// IANA time zone name.
+// 
+// As of December 2024, the time zone descriptions shown in the SubItUp UI look
+// like, for example, "(GMT -6:00) CST/Central Standard" or
+// "(GMT +10:00) AET/Australia Eastern".
+const getAinaTimeZoneNameFromSubItUpTimeZoneDescription = (subItUpTimeZoneLabel) => {
+    if (!subItUpTimeZoneLabel) {
+        return null;
+    }
+
+    // Every SubItUp time zone description contains a unique three-letter
+    // abbreviation (like "CST" or "AET"), which we can use to determine what
+    // the corresponding AINA time zone should be. The abbreviation comes just
+    // before a slash, so we can use that to find and extract it.
+    const slashIndex = subItUpTimeZoneLabel.indexOf("/");
+    const subItUpTzAbbreviation = subItUpTimeZoneLabel.substring(slashIndex - 3, slashIndex);
+
+    const ianaTimeZoneName = subItUpTzAbbreviationToIanaTzName[subItUpTzAbbreviation];
+
+    if (!ianaTimeZoneName) {
+        console.warn(`Failed to map SubItUp time zone label to IANA time zone name. The label was: '${subItUpTimeZoneLabel}'`);
+    }
+
+    return ianaTimeZoneName ?? null;
+}
+
+const subItUpTzAbbreviationToIanaTzName = {
+    "GMT": "Etc/GMT",
+    "UTC": "Etc/UTC",
+    "GMST": "Europe/London",
+    "ECT": "Europe/Berlin",
+    "EET": "Europe/Bucharest",
+    "ART": "Africa/Cairo",
+    "EAT": "Africa/Nairobi",
+    "MET": "Asia/Tehran",
+    "NET": "Asia/Tbilisi",
+    "PLT": "Asia/Dubai",
+    "AFT": "Asia/Kabul",
+    "IST": "Asia/Kolkata",
+    "BST": "Asia/Dhaka",
+    "VST": "Asia/Ho_Chi_Minh",
+    "CTT": "Asia/Shanghai",
+    "JST": "Asia/Tokyo",
+    "ACT": "Australia/Darwin",
+    "AET": "Australia/Sydney",
+    "SST": "Pacific/Guadalcanal",
+    "NST": "Pacific/Auckland",
+    "MIT": "Pacific/Pago_Pago",
+    "HST": "Pacific/Honolulu",
+    "AST": "America/Anchorage",
+    "PST": "America/Los_Angeles",
+    "PNT": "America/Phoenix",
+    "MST": "America/Denver",
+    "CST": "America/Chicago",
+    "EST": "America/New_York",
+    "IET": "America/Indiana/Indianapolis",
+    "PRT": "America/Puerto_Rico",
+    "CNT": "America/St_Johns",
+    "AGT": "America/Argentina/Buenos_Aires",
+    "BET": "America/Sao_Paulo",
+    "CAT": "Atlantic/Cape_Verde"
+}

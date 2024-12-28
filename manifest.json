@@ -14,7 +14,8 @@
     "permissions": [
         "identity",
         "storage",
-        "webRequest"
+        "webRequest",
+        "scripting"
     ],
     "host_permissions": [
         "https://*.subitup.com/*"

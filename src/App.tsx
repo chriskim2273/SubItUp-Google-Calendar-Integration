@@ -14,6 +14,39 @@ const testCreateEvent = () => {
   chrome.runtime.sendMessage({ action: 'createEvent' });
 }
 
+const getTimeZoneDescriptionFromPage = async (): Promise<string | null> => {
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  if (chrome.runtime.lastError) {
+    console.error(chrome.runtime.lastError);
+  }
+
+  if (!activeTab || !activeTab.id) {
+    console.error("Can't get active tab.");
+    return null;
+  }
+
+  const [readTimeZoneDescriptionResult] = await chrome.scripting.executeScript({
+    target: {
+      tabId: activeTab.id,
+    },
+    func: () => {
+      // This element is found on the SubItUp employee side nav and
+      // should contain a text description of the user's time zone, like
+      // "(GMT -6:00) CST/Central Standard".
+      return document.getElementById("timezoneanchor")?.textContent || null;
+    }
+  });
+
+  const timeZoneDescription = readTimeZoneDescriptionResult.result;
+
+  if (!timeZoneDescription) {
+    console.warn("Failed to find time zone description on page.");
+  }
+
+  return timeZoneDescription;
+}
+
 
 function App() {
   const [refresh, setRefresh] = useState(false);
@@ -139,9 +172,18 @@ function App() {
   }
   */
 
-  const addToGoogleCalendar = () => {
-    if (checkedShifts.length > 0)
-      chrome.runtime.sendMessage({ action: 'uploadToGoogleCalendar', shiftIds: checkedShifts, shiftData: SubItUpEvents, token: accessToken });
+  const addToGoogleCalendar = async () => {
+    const timeZoneDescription = await getTimeZoneDescriptionFromPage();
+
+    if (checkedShifts.length > 0) {
+      chrome.runtime.sendMessage({ 
+        action: 'uploadToGoogleCalendar',
+        shiftIds: checkedShifts,
+        shiftData: SubItUpEvents,
+        timeZoneDescription,
+        token: accessToken
+      });
+    }
   }
 
   const [checkedShifts, setCheckedShifts] = useState([]); //SubItUpEvents.filter((shift) => shift['addToGoogleCalendar'] == true).map((shift) => shift['shiftid']));
