@@ -1,7 +1,7 @@
 /// <reference types="chrome"/>
 
 import { AbsoluteCenter, Alert, AlertIcon, AlertTitle, Box, Button, ButtonGroup, Card, CardBody, CardHeader, Center, Checkbox, CircularProgress, Divider, Flex, Grid, HStack, IconButton, Input, ListItem, OrderedList, Select, SimpleGrid, Spinner, Stack, StackItem, Tab, TabList, TabPanel, TabPanels, Tabs, Text } from "@chakra-ui/react";
-import { SetStateAction, useState } from "react";
+import { SetStateAction, useEffect, useState } from "react";
 import { ArrowBackIcon, ArrowForwardIcon, CalendarIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, MinusIcon, SmallCloseIcon } from '@chakra-ui/icons';
 import "./App.css"
 
@@ -39,19 +39,21 @@ function App() {
     setRefresh(!refresh);
   }
 
-  chrome.storage.local.get(null, function (data) {
-    setAccessToken(data.accessToken);
-    if (data.shifts !== undefined) {
-      setSubItUpEvents(data.shifts);
-      //setCheckedShifts(data.shifts.filter((shift: { [x: string]: boolean; }) => shift['addToGoogleCalendar'] == true)
-      //.map((shift: { [x: string]: any; }) => shift['shiftid']));
-      setSubItUpFirstLoad(true);
-    }
-    // Probably not necessary
-    if (data.SubItUpRequiredRequestBody !== undefined) {
-      setSubItUpPayload(data.SubItUpRequiredRequestBody);
-    }
-  });
+  useEffect(() => {
+    chrome.storage.local.get(null, function (data) {
+      setAccessToken(data.accessToken);
+      if (data.shifts !== undefined) {
+        setSubItUpEvents(data.shifts);
+        //setCheckedShifts(data.shifts.filter((shift: { [x: string]: boolean; }) => shift['addToGoogleCalendar'] == true)
+        //.map((shift: { [x: string]: any; }) => shift['shiftid']));
+        setSubItUpFirstLoad(true);
+      }
+      // Probably not necessary
+      if (data.SubItUpRequiredRequestBody !== undefined) {
+        setSubItUpPayload(data.SubItUpRequiredRequestBody);
+      }
+    });
+  }, [refresh])
 
   const logOut = () => {
     chrome.storage.local.clear(function () {
@@ -90,6 +92,19 @@ function App() {
     }
     if (message.action == 'endUploadingEvents') {
       setUploadingEvents(false);
+    }
+    if (message.action == 'shiftDataReceived') {
+      refreshExtension();
+      return;
+      // WORK ON THIS
+      chrome.storage.local.get(null, function (data) {
+        if (message.shifts !== undefined) {
+          setSubItUpEvents(message.shifts);
+        }
+        if (message.SubItUpRequiredRequestBody !== undefined) {
+          setSubItUpPayload(message.SubItUpRequiredRequestBody);
+        }
+      });
     }
   });
 

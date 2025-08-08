@@ -117,8 +117,40 @@ const testCreateEvent = () => {
 
 }
 
+const getUserTimeZone = async (accessToken) => {
+    const CALENDAR_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary';
 
-const getCalendarId = async (calendarName, accessToken) => {
+    const headers = {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    };
+
+    return await fetch(CALENDAR_URL, {
+        method: 'GET',
+        headers,
+    })
+        .then(response => {
+            if (!response.ok) {
+                if (response.status == 401) {
+                    chrome.runtime.sendMessage({ action: 'loggedOut' });
+                }
+                throw new Error(`Failed to retrieve user's primary calendar. Status code: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            return data.timeZone;  // Extract and return the timezone
+        })
+        .catch(error => {
+            console.error('Error Retrieving User Timezone:', error.message);
+            chrome.runtime.sendMessage({ action: 'loggedOut' });
+            return 'America/New_York';  // Fallback in case of error
+        });
+};
+
+
+const getCalendarId = async (calendarName, accessToken, timezone) => {
     const CALENDAR_LIST_URL = 'https://www.googleapis.com/calendar/v3/users/me/calendarList'
     const CALENDARS_URL = 'https://www.googleapis.com/calendar/v3/calendars/'
 
@@ -162,9 +194,10 @@ const getCalendarId = async (calendarName, accessToken) => {
         return calendarId;
     }
 
+
     let newCalendarData = {
         'summary': calendarName,  // Customize the calendar name
-        'timeZone': 'America/New_York' // Should this be allowed to be set by the user?
+        'timeZone': timezone // Should this be allowed to be set by the user?
     }
     calendarId = await fetch(CALENDARS_URL, {
         method: 'POST',
@@ -204,17 +237,20 @@ const createShiftEvents = async (shiftIds, shiftData, accessToken) => {
         }
         return false;
     });
+
+    const fetchedTimezone = getUserTimeZone();
+
     let shiftDataToAddToCalendar = shiftsToAddToCalendar.map((shift) => {
         return {
             summary: shift['ShiftName'],
             description: shift['HelpfulInfo'],
             start: {
                 dateTime: shift['milstart'].replace(' ', 'T'),
-                timeZone: 'America/New_York',
+                timeZone: fetchedTimezone,
             },
             end: {
                 dateTime: shift['milend'].replace(' ', 'T'),
-                timeZone: 'America/New_York',
+                timeZone: fetchedTimezone,
             }
         }
     });
@@ -374,7 +410,7 @@ const { startDate, endDate } = getWeekBounds(currentDate);
 // SPECIFIED BY USER --> Drop downs??
 
 // Intercept network requests
-let done = false;
+let shiftFetchInProgress = false;
 chrome.webRequest.onBeforeRequest.addListener(
     (details) => {
         if (details.url.includes("GetEmployeeScheduleData")) {
@@ -403,8 +439,8 @@ chrome.webRequest.onBeforeRequest.addListener(
                 }
 
                 if (payload) {
-                    if (done === false) {
-                        done = true;
+                    if (shiftFetchInProgress === false) {
+                        shiftFetchInProgress = true;
                         // Inform the background script to track the payload
                         console.log(payload);
                         payload['startdate'] = startDate;
@@ -443,6 +479,7 @@ chrome.webRequest.onBeforeRequest.addListener(
                                 console.error("Error resending request:", error);
                                 chrome.runtime.sendMessage({ action: 'loggedOut' });
                             });
+                        shiftFetchInProgress = false;
                     }
                 }
             }
