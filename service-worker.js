@@ -353,7 +353,7 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
                     });
                     chrome.storage.local.set({ 'shifts': responseData }, function () {
                         // Encrypt and store the access token
-                        console.log('shifts is set to ' + responseData[0].stringify());
+                        console.log('shifts is set to ' + JSON.stringify(responseData[0]));
                     });
                     console.log("Resent Request Response:", responseData);
                 })
@@ -471,7 +471,7 @@ chrome.webRequest.onBeforeRequest.addListener(
                                 });
                                 chrome.storage.local.set({ 'shifts': responseData }, function () {
                                     // Encrypt and store the access token
-                                    console.log('shifts is set to ' + responseData[0].stringify());
+                                    console.log('shifts is set to ' + JSON.stringify(responseData[0]));
                                 });
                                 console.log("Resent Request Response:", responseData);
                             })
