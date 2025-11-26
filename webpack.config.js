@@ -35,6 +35,7 @@ module.exports = {
         new CopyPlugin({
             patterns: [
                 { from: "manifest.json", to: "../manifest.json" },
+                { from: "service-worker.js", to: "../service-worker.js" },
             ],
         }),
         ...getHtmlPlugins(["index"]),
@@ -55,6 +56,19 @@ function getHtmlPlugins(chunks) {
                 title: "React extension",
                 filename: `${chunk}.html`,
                 chunks: [chunk],
+                templateContent: `
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>React Extension</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+`
             })
     );
 }

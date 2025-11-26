@@ -154,9 +154,11 @@ function App() {
   }
   */
 
+  const [selectedTimeZone, setSelectedTimeZone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
+
   const addToGoogleCalendar = () => {
     if (checkedShifts.length > 0)
-      chrome.runtime.sendMessage({ action: 'uploadToGoogleCalendar', shiftIds: checkedShifts, shiftData: SubItUpEvents, token: accessToken });
+      chrome.runtime.sendMessage({ action: 'uploadToGoogleCalendar', shiftIds: checkedShifts, shiftData: SubItUpEvents, token: accessToken, timeZone: selectedTimeZone });
   }
 
   const [checkedShifts, setCheckedShifts] = useState([]); //SubItUpEvents.filter((shift) => shift['addToGoogleCalendar'] == true).map((shift) => shift['shiftid']));
@@ -191,6 +193,18 @@ function App() {
     }
 
     const submitButton = <Box>
+      <Box mb={2}>
+        <Text fontSize='sm' mb={1}>Timezone</Text>
+        <Select
+          size='sm'
+          value={selectedTimeZone}
+          onChange={(e) => setSelectedTimeZone(e.target.value)}
+        >
+          {(Intl as any).supportedValuesOf('timeZone').map((tz: string) => (
+            <option key={tz} value={tz}>{tz}</option>
+          ))}
+        </Select>
+      </Box>
       <Button colorScheme='blue' onClick={addToGoogleCalendar}>
         <Grid>
           <Text fontSize='2xl'>

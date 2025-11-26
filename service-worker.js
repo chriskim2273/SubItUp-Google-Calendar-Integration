@@ -117,36 +117,8 @@ const testCreateEvent = () => {
 
 }
 
-const getUserTimeZone = async (accessToken) => {
-    const CALENDAR_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary';
-
-    const headers = {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-    };
-
-    return await fetch(CALENDAR_URL, {
-        method: 'GET',
-        headers,
-    })
-        .then(response => {
-            if (!response.ok) {
-                if (response.status == 401) {
-                    chrome.runtime.sendMessage({ action: 'loggedOut' });
-                }
-                throw new Error(`Failed to retrieve user's primary calendar. Status code: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            return data.timeZone;  // Extract and return the timezone
-        })
-        .catch(error => {
-            console.error('Error Retrieving User Timezone:', error.message);
-            chrome.runtime.sendMessage({ action: 'loggedOut' });
-            return 'America/New_York';  // Fallback in case of error
-        });
+const getUserTimeZone = () => {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
 };
 
 
@@ -226,7 +198,7 @@ const getCalendarId = async (calendarName, accessToken, timezone) => {
     return calendarId;
 }
 
-const createShiftEvents = async (shiftIds, shiftData, accessToken) => {
+const createShiftEvents = async (shiftIds, shiftData, accessToken, timeZone) => {
     // ADD THIS AS A PARAMETER
     const calendarName = "SubItUp Shifts";
 
@@ -238,7 +210,7 @@ const createShiftEvents = async (shiftIds, shiftData, accessToken) => {
         return false;
     });
 
-    const fetchedTimezone = getUserTimeZone();
+    const fetchedTimezone = timeZone || getUserTimeZone();
 
     let shiftDataToAddToCalendar = shiftsToAddToCalendar.map((shift) => {
         return {
@@ -308,7 +280,7 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
     }
     else if (message.action === 'uploadToGoogleCalendar') {
         console.log(message.shiftIds);
-        createShiftEvents(message.shiftIds, message.shiftData, message.token);
+        createShiftEvents(message.shiftIds, message.shiftData, message.token, message.timeZone);
     }
     else if (message.action === 'refreshShifts') {
         let payload = undefined;
@@ -353,7 +325,8 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
                     });
                     chrome.storage.local.set({ 'shifts': responseData }, function () {
                         // Encrypt and store the access token
-                        console.log('shifts is set to ' + responseData[0].stringify());
+                        console.log('shifts saved. Count: ' + responseData.length);
+                        chrome.runtime.sendMessage({ action: 'shiftDataReceived' });
                     });
                     console.log("Resent Request Response:", responseData);
                 })
@@ -410,41 +383,55 @@ const { startDate, endDate } = getWeekBounds(currentDate);
 // SPECIFIED BY USER --> Drop downs??
 
 // Intercept network requests
+// Intercept network requests
 let shiftFetchInProgress = false;
 chrome.webRequest.onBeforeRequest.addListener(
     (details) => {
         if (details.url.includes("GetEmployeeScheduleData")) {
-            if (details.method === "POST" && details.type === "xmlhttprequest" && !details.GoogleCalendarExtensionRequest) {
+            if (details.method === "POST" && details.type === "xmlhttprequest") {
                 let payload = null;
 
                 try {
-                    // Extract payload from request body
-                    payload = JSON.parse(decodeURIComponent(new TextDecoder().decode(details.requestBody.raw[0].bytes)));
-                    console.log('Payload before dates removed: ', payload)
+                    if (details.requestBody && details.requestBody.raw && details.requestBody.raw[0]) {
+                        // Extract payload from request body
+                        const rawBody = new TextDecoder().decode(details.requestBody.raw[0].bytes);
+                        payload = JSON.parse(decodeURIComponent(rawBody));
+                    }
+                } catch (error) {
+                    console.error("Error parsing payload:", error);
+                    return;
+                }
+
+                // Check if this is our own request to avoid infinite loops
+                if (payload && payload.GoogleCalendarExtensionRequest) {
+                    return;
+                }
+
+                if (payload) {
                     // Remove the start and end dates. (Only store the auth and other keys)
                     const { enddate, startdate, ...requiredRequestBody } = payload;
-                    payload = requiredRequestBody;
+                    const storedPayload = requiredRequestBody;
 
                     // Store the SubItUp Access Token
-                    chrome.storage.local.set({ 'SubItUpRequiredRequestBody': payload }, function () {
-                        console.log('SubItUpRequiredRequestBody: ' + JSON.stringify(payload));
+                    chrome.storage.local.set({ 'SubItUpRequiredRequestBody': storedPayload }, function () {
+                        console.log('SubItUpRequiredRequestBody: ' + JSON.stringify(storedPayload));
                     });
 
                     // Store the SubItUp Request URL
                     chrome.storage.local.set({ 'SubItUpRequestURL': details.url }, function () {
                         console.log('SubItUpRequestURL: ' + details.url);
                     });
-                } catch (error) {
-                    console.error("Error parsing payload:", error);
-                }
 
-                if (payload) {
                     if (shiftFetchInProgress === false) {
                         shiftFetchInProgress = true;
-                        // Inform the background script to track the payload
-                        console.log(payload);
+
+                        // Prepare payload for our fetch
                         payload['startdate'] = startDate;
                         payload['enddate'] = endDate;
+                        payload['GoogleCalendarExtensionRequest'] = true; // Mark as our request
+
+                        console.log("Fetching shifts with payload:", payload);
+
                         fetch(details.url, {
                             method: details.method,
                             headers: {
@@ -470,20 +457,29 @@ chrome.webRequest.onBeforeRequest.addListener(
                                     }
                                 });
                                 chrome.storage.local.set({ 'shifts': responseData }, function () {
-                                    // Encrypt and store the access token
-                                    console.log('shifts is set to ' + responseData[0].stringify());
+                                    console.log('shifts saved. Count: ' + responseData.length);
+                                    chrome.runtime.sendMessage({ action: 'shiftDataReceived' });
                                 });
                                 console.log("Resent Request Response:", responseData);
                             })
                             .catch((error) => {
                                 console.error("Error resending request:", error);
-                                chrome.runtime.sendMessage({ action: 'loggedOut' });
+                                // Only send message if popup is likely open (difficult to know for sure, but we can try)
+                                // Or just suppress the error if no listener
+                                try {
+                                    chrome.runtime.sendMessage({ action: 'loggedOut' }).catch(() => {
+                                        // Ignore error if no receiver
+                                    });
+                                } catch (e) {
+                                    // Ignore
+                                }
+                            })
+                            .finally(() => {
+                                shiftFetchInProgress = false;
                             });
-                        shiftFetchInProgress = false;
                     }
                 }
             }
-
         }
     },
     { urls: ["https://*.subitup.com/*"] },
